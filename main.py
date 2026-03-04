@@ -26,26 +26,21 @@ PRECIO_COMPRA = {
 
 ALERTA_PORCENTAJE = 3.0
 INTERVALO         = 1800   # 30 minutos
-HORA_INICIO       = 9
-HORA_FIN          = 20
+HORA_INICIO       = 10
+HORA_FIN          = 18
 
 # ============================================================
 
 def obtener_precio(ticker: str) -> dict:
     try:
-        url = "https://www.alphavantage.co/query"
-        params = {
-            "function": "GLOBAL_QUOTE",
-            "symbol":   ticker,
-            "apikey":   ALPHAVANTAGE_APIKEY,
-        }
-        resp = requests.get(url, params=params, timeout=10)
-        data = resp.json().get("Global Quote", {})
-        if not data:
-            return {"ticker": ticker, "ok": False, "error": "Sin datos"}
-        precio_actual = round(float(data["05. price"]), 2)
-        precio_cierre = round(float(data["08. previous close"]), 2)
-        variacion_dia = round(float(data["10. change percent"].replace("%", "")), 2)
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        resp = requests.get(url, headers=headers, timeout=10)
+        data = resp.json()
+        meta = data["chart"]["result"][0]["meta"]
+        precio_actual = round(float(meta["regularMarketPrice"]), 2)
+        precio_cierre = round(float(meta["previousClose"]), 2)
+        variacion_dia = round(((precio_actual - precio_cierre) / precio_cierre) * 100, 2)
         return {
             "ticker": ticker,
             "precio": precio_actual,
