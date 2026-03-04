@@ -140,10 +140,10 @@ def home():
     return "Monitor CEDEARs corriendo ✅"
 
 
+# Arranca el hilo al importar — funciona con gunicorn y con python directo
+hilo = threading.Thread(target=loop_monitor, daemon=True)
+hilo.start()
+
 if __name__ == "__main__":
-    # Arranca el monitor en un hilo separado
-    hilo = threading.Thread(target=loop_monitor, daemon=True)
-    hilo.start()
-    # Arranca el servidor web (requerido por Render)
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
