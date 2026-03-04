@@ -26,8 +26,8 @@ PRECIO_COMPRA = {
 
 ALERTA_PORCENTAJE = 3.0
 INTERVALO         = 1800   # 30 minutos
-HORA_INICIO       = 10
-HORA_FIN          = 18
+HORA_INICIO       = 5
+HORA_FIN          = 13
 
 # ============================================================
 
