@@ -20,8 +20,10 @@ TELEGRAM_CHAT_ID    = os.environ.get("TELEGRAM_CHAT_ID", "")
 ALPHAVANTAGE_APIKEY = os.environ.get("ALPHAVANTAGE_APIKEY", "")
 
 PRECIO_COMPRA = {
-    "XLE": float(os.environ.get("PRECIO_XLE", "0")),
-    "GLD": float(os.environ.get("PRECIO_GLD", "0")),
+    "XLE":    float(os.environ.get("PRECIO_XLE", "0")),
+    "GLD":    float(os.environ.get("PRECIO_GLD", "0")),
+    "XLE.BA": float(os.environ.get("PRECIO_XLE_BA", "0")),
+    "GLD.BA": float(os.environ.get("PRECIO_GLD_BA", "0")),
 }
 
 ALERTA_PORCENTAJE = 3.0
@@ -65,9 +67,13 @@ def calcular_var_compra(ticker: str, precio_actual: float) -> str:
 def construir_mensaje(datos_list: list) -> str:
     ahora = datetime.now().strftime("%d/%m %H:%M")
     lineas = [f"📊 *Monitor CEDEARs* — {ahora} hs\n"]
+    lineas.append("🇺🇸 *NYSE (USD)*")
     alertas = []
 
     for d in datos_list:
+        if d["ticker"] == "XLE.BA":
+            lineas.append("")
+            lineas.append("🇦🇷 *BYMA (ARS)*")
         if not d["ok"]:
             lineas.append(f"❌ {d['ticker']}: {d.get('error','error')}\n")
             continue
@@ -80,6 +86,7 @@ def construir_mensaje(datos_list: list) -> str:
         signo     = "+" if var_dia >= 0 else ""
 
         lineas.append(f"*{ticker}*")
+        moneda = "$" if not ticker.endswith(".BA") else "$"
         lineas.append(f"  💵 Precio: *${precio}*")
         lineas.append(f"  {emoji_dia} Variación día: *{signo}{var_dia}%*")
         lineas.append(calcular_var_compra(ticker, precio))
@@ -121,7 +128,7 @@ def ejecutar_chequeo():
         print(f"[{datetime.now().strftime('%H:%M:%S')}] Fuera de horario, saltando...")
         return
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Consultando precios...")
-    datos   = [obtener_precio("XLE"), obtener_precio("GLD")]
+    datos   = [obtener_precio("XLE"), obtener_precio("GLD"), obtener_precio("XLE.BA"), obtener_precio("GLD.BA")]
     mensaje = construir_mensaje(datos)
     print(mensaje)
     enviar_telegram(mensaje)
