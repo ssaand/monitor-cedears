@@ -1,6 +1,7 @@
 """
-Monitor de CEDEARs - XLE y GLD con alertas por Telegram
+Monitor de CEDEARs con alertas por Telegram
 Corre en Render.com (gratis, 24/7)
+Envía 1 mensaje por día a las 12:00 hs Argentina (lunes a viernes)
 """
 
 import requests
@@ -9,27 +10,29 @@ import os
 from datetime import datetime
 from flask import Flask
 import threading
+import schedule
 
 app = Flask(__name__)
 
 # ============================================================
-# ⚙️  CONFIGURACIÓN — se leen desde variables de entorno
+# ⚙️  CONFIGURACIÓN
 # ============================================================
 TELEGRAM_BOT_TOKEN  = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID    = os.environ.get("TELEGRAM_CHAT_ID", "")
-ALPHAVANTAGE_APIKEY = os.environ.get("ALPHAVANTAGE_APIKEY", "")
 
-PRECIO_COMPRA = {
-    "XLE":    float(os.environ.get("PRECIO_XLE", "0")),
-    "GLD":    float(os.environ.get("PRECIO_GLD", "0")),
-    "XLE.BA": float(os.environ.get("PRECIO_XLE_BA", "0")),
-    "GLD.BA": float(os.environ.get("PRECIO_GLD_BA", "0")),
+# Cartera: ticker NYSE -> (cantidad, precio_compra_usd)
+CARTERA = {
+    "IREN.BA":  (27,  3.62),
+    "NVDA.BA":  (14, 10.50),
+    "MU.BA":    (1,  222.75),
+    "IBIT.BA":  (19,  5.07),
+    "GOOGL.BA": (15,  6.27),
+    "AVGO.BA":  (9,  10.16),
+    "VST.BA":   (15,  6.49),
 }
 
-ALERTA_PORCENTAJE = 3.0
-INTERVALO         = 3600   # 60 minutos
-HORA_INICIO       = 9
-HORA_FIN          = 20
+ALERTA_PORCENTAJE = 5.0   # alerta si varía más de 5% vs compra
+HORARIO_ENVIO     = "12:00"  # hora Argentina
 
 # ============================================================
 
@@ -46,7 +49,6 @@ def obtener_precio(ticker: str) -> dict:
         return {
             "ticker": ticker,
             "precio": precio_actual,
-            "cierre_anterior": precio_cierre,
             "var_dia": variacion_dia,
             "ok": True,
         }
@@ -54,54 +56,61 @@ def obtener_precio(ticker: str) -> dict:
         return {"ticker": ticker, "ok": False, "error": str(e)}
 
 
-def calcular_var_compra(ticker: str, precio_actual: float) -> str:
-    compra = PRECIO_COMPRA.get(ticker, 0)
-    if compra <= 0:
-        return "  📌 _Precio de compra no cargado_"
-    var = round(((precio_actual - compra) / compra) * 100, 2)
-    emoji = "🟢" if var >= 0 else "🔴"
-    signo = "+" if var >= 0 else ""
-    return f"  {emoji} vs compra (${compra}): *{signo}{var}%*"
+def construir_mensaje(resultados: list) -> str:
+    ahora = datetime.now().strftime("%d/%m/%Y %H:%M")
+    lineas = [f"📊 *Resumen Cartera* — {ahora} hs\n"]
 
+    total_invertido = 0
+    total_actual    = 0
+    alertas         = []
 
-def construir_mensaje(datos_list: list) -> str:
-    ahora = datetime.now().strftime("%d/%m %H:%M")
-    lineas = [f"📊 *Monitor CEDEARs* — {ahora} hs\n"]
-    lineas.append("🇺🇸 *NYSE (USD)*")
-    alertas = []
+    for d in resultados:
+        ticker = d["ticker"]
+        cant, p_compra = CARTERA[ticker]
+        total_invertido += cant * p_compra
 
-    for d in datos_list:
-        if d["ticker"] == "XLE.BA":
-            lineas.append("")
-            lineas.append("🇦🇷 *BYMA (ARS)*")
         if not d["ok"]:
-            lineas.append(f"❌ {d['ticker']}: {d.get('error','error')}\n")
+            lineas.append(f"❌ *{ticker}*: error al obtener datos\n")
             continue
 
-        ticker  = d["ticker"]
-        precio  = d["precio"]
-        var_dia = d["var_dia"]
+        precio   = d["precio"]
+        var_dia  = d["var_dia"]
+        valor_actual   = round(cant * precio, 2)
+        valor_compra   = round(cant * p_compra, 2)
+        var_compra     = round(((precio - p_compra) / p_compra) * 100, 2)
+        gan_perdida    = round(valor_actual - valor_compra, 2)
+        total_actual  += valor_actual
 
-        emoji_dia = "🟢" if var_dia >= 0 else "🔴"
-        signo     = "+" if var_dia >= 0 else ""
+        emoji_dia    = "🟢" if var_dia >= 0 else "🔴"
+        emoji_compra = "🟢" if var_compra >= 0 else "🔴"
+        signo_dia    = "+" if var_dia >= 0 else ""
+        signo_compra = "+" if var_compra >= 0 else ""
+        signo_gan    = "+" if gan_perdida >= 0 else ""
 
-        lineas.append(f"*{ticker}*")
-        moneda = "$" if not ticker.endswith(".BA") else "$"
-        lineas.append(f"  💵 Precio: *${precio}*")
-        lineas.append(f"  {emoji_dia} Variación día: *{signo}{var_dia}%*")
-        lineas.append(calcular_var_compra(ticker, precio))
-
-        compra = PRECIO_COMPRA.get(ticker, 0)
-        if compra > 0:
-            var_compra = ((precio - compra) / compra) * 100
-            if abs(var_compra) >= ALERTA_PORCENTAJE:
-                direccion = "SUBIÓ 📈" if var_compra > 0 else "BAJÓ 📉"
-                alertas.append(
-                    f"🚨 *ALERTA {ticker}*: {direccion} *{abs(round(var_compra,2))}%* desde tu compra!"
-                )
+        lineas.append(f"*{ticker}* ({cant} acc.)")
+        lineas.append(f"  💵 Precio: *${precio}* | Compra: ${p_compra}")
+        lineas.append(f"  {emoji_dia} Hoy: *{signo_dia}{var_dia}%*")
+        lineas.append(f"  {emoji_compra} vs Compra: *{signo_compra}{var_compra}%* ({signo_gan}${gan_perdida})")
         lineas.append("")
 
+        if abs(var_compra) >= ALERTA_PORCENTAJE:
+            dir = "SUBIÓ 📈" if var_compra > 0 else "BAJÓ 📉"
+            alertas.append(f"🚨 *{ticker}*: {dir} *{abs(var_compra)}%* desde tu compra!")
+
+    # Resumen total
+    total_var = round(((total_actual - total_invertido) / total_invertido) * 100, 2)
+    gan_total = round(total_actual - total_invertido, 2)
+    emoji_total = "🟢" if total_var >= 0 else "🔴"
+    signo_total = "+" if gan_total >= 0 else ""
+
+    lineas.append("━━━━━━━━━━━━━━")
+    lineas.append(f"💼 *TOTAL CARTERA*")
+    lineas.append(f"  Invertido: *${round(total_invertido, 2)}*")
+    lineas.append(f"  Actual:    *${round(total_actual, 2)}*")
+    lineas.append(f"  {emoji_total} Resultado: *{signo_total}${gan_total} ({signo_total}{total_var}%)*")
+
     if alertas:
+        lineas.append("")
         lineas.append("━━━━━━━━━━━━━━")
         lineas += alertas
 
@@ -123,31 +132,31 @@ def enviar_telegram(mensaje: str):
 
 
 def ejecutar_chequeo():
-    hora_actual = datetime.now().hour
-    if not (HORA_INICIO <= hora_actual < HORA_FIN):
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] Fuera de horario, saltando...")
-        return
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Consultando precios...")
-    datos   = [obtener_precio("XLE"), obtener_precio("GLD"), obtener_precio("XLE.BA"), obtener_precio("GLD.BA")]
-    mensaje = construir_mensaje(datos)
+    resultados = [obtener_precio(t) for t in CARTERA.keys()]
+    mensaje = construir_mensaje(resultados)
     print(mensaje)
     enviar_telegram(mensaje)
 
 
 def loop_monitor():
-    ejecutar_chequeo()
+    schedule.every().monday.at(HORARIO_ENVIO).do(ejecutar_chequeo)
+    schedule.every().tuesday.at(HORARIO_ENVIO).do(ejecutar_chequeo)
+    schedule.every().wednesday.at(HORARIO_ENVIO).do(ejecutar_chequeo)
+    schedule.every().thursday.at(HORARIO_ENVIO).do(ejecutar_chequeo)
+    schedule.every().friday.at(HORARIO_ENVIO).do(ejecutar_chequeo)
+    print(f"Monitor activo — envío diario a las {HORARIO_ENVIO} hs (lunes a viernes)")
     while True:
-        time.sleep(INTERVALO)
-        ejecutar_chequeo()
+        schedule.run_pending()
+        time.sleep(30)
 
 
-# Render necesita un servidor web activo
 @app.route("/")
 def home():
-    return "Monitor CEDEARs corriendo ✅"
+    return "Monitor Cartera corriendo ✅"
 
 
-# Arranca el hilo al importar — funciona con gunicorn y con python directo
+# Arranca el hilo al importar — funciona con gunicorn y python directo
 hilo = threading.Thread(target=loop_monitor, daemon=True)
 hilo.start()
 
