@@ -33,7 +33,7 @@ CARTERA = {
 }
 
 ALERTA_PORCENTAJE = 5.0
-HORARIO_ENVIO     = "13:00"  # hora Argentina (Render corre en UTC-3 aprox)
+HORARIO_ENVIO     = "16:00"  # hora Argentina (Render corre en UTC-3 aprox)
 
 # ============================================================
 
