@@ -7,7 +7,7 @@ Envía 1 mensaje por día a las 13:00 hs Argentina (lunes a viernes)
 import requests
 import time
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Flask
 import threading
 import schedule
