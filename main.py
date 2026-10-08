@@ -156,6 +156,11 @@ def loop_monitor():
 def home():
     return "Monitor Cartera corriendo ✅"
 
+@app.route("/test")
+def test():
+    ejecutar_chequeo()
+    return "Mensaje enviado a Telegram ✅"
+
 
 hilo = threading.Thread(target=loop_monitor, daemon=True)
 hilo.start()
