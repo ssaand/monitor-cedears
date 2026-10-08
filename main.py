@@ -1,7 +1,7 @@
 """
 Monitor de CEDEARs con alertas por Telegram
 Corre en Render.com (gratis, 24/7)
-Envía 1 mensaje por día a las 12:00 hs Argentina (lunes a viernes)
+Envía 1 mensaje por día a las 13:00 hs Argentina (lunes a viernes)
 """
 
 import requests
@@ -17,22 +17,23 @@ app = Flask(__name__)
 # ============================================================
 # ⚙️  CONFIGURACIÓN
 # ============================================================
-TELEGRAM_BOT_TOKEN  = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID    = os.environ.get("TELEGRAM_CHAT_ID", "")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID", "")
 
-# Cartera: ticker NYSE -> (cantidad, precio_compra_usd)
+# Cartera: ticker Yahoo -> (cantidad, precio_compra_usd, fecha_compra)
 CARTERA = {
-    "IREN.BA":  (27,  3.62),
-    "NVDA.BA":  (14, 10.50),
-    "MU.BA":    (1,  222.75),
-    "IBIT.BA":  (19,  5.07),
-    "GOOGL.BA": (15,  6.27),
-    "AVGO.BA":  (9,  10.16),
-    "VST.BA":   (15,  6.49),
+    "IREND.BA":  (27,   3.62,  "06/OCT/26"),
+    "NVDAD.BA":  (14,  10.50,  "06/OCT/26"),
+    "MUD.BA":    (1,  222.75,  "06/OCT/26"),
+    "IBITD.BA":  (19,   5.07,  "06/OCT/26"),
+    "GOGLD.BA":  (15,   6.27,  "06/OCT/26"),
+    "AVGOD.BA":  (9,   10.16,  "06/OCT/26"),
+    "VSTD.BA":   (15,   6.49,  "06/OCT/26"),
+    "METAD.BA":  (3,   31.52,  "07/OCT/26"),
 }
 
-ALERTA_PORCENTAJE = 5.0   # alerta si varía más de 5% vs compra
-HORARIO_ENVIO     = "12:00"  # hora Argentina
+ALERTA_PORCENTAJE = 5.0
+HORARIO_ENVIO     = "13:00"  # hora Argentina (Render corre en UTC-3 aprox)
 
 # ============================================================
 
@@ -66,20 +67,20 @@ def construir_mensaje(resultados: list) -> str:
 
     for d in resultados:
         ticker = d["ticker"]
-        cant, p_compra = CARTERA[ticker]
+        cant, p_compra, fecha = CARTERA[ticker]
         total_invertido += cant * p_compra
 
         if not d["ok"]:
             lineas.append(f"❌ *{ticker}*: error al obtener datos\n")
             continue
 
-        precio   = d["precio"]
-        var_dia  = d["var_dia"]
-        valor_actual   = round(cant * precio, 2)
-        valor_compra   = round(cant * p_compra, 2)
-        var_compra     = round(((precio - p_compra) / p_compra) * 100, 2)
-        gan_perdida    = round(valor_actual - valor_compra, 2)
-        total_actual  += valor_actual
+        precio       = d["precio"]
+        var_dia      = d["var_dia"]
+        valor_actual = round(cant * precio, 2)
+        valor_compra = round(cant * p_compra, 2)
+        var_compra   = round(((precio - p_compra) / p_compra) * 100, 2)
+        gan_perdida  = round(valor_actual - valor_compra, 2)
+        total_actual += valor_actual
 
         emoji_dia    = "🟢" if var_dia >= 0 else "🔴"
         emoji_compra = "🟢" if var_compra >= 0 else "🔴"
@@ -87,7 +88,8 @@ def construir_mensaje(resultados: list) -> str:
         signo_compra = "+" if var_compra >= 0 else ""
         signo_gan    = "+" if gan_perdida >= 0 else ""
 
-        lineas.append(f"*{ticker}* ({cant} acc.)")
+        nombre = ticker.replace(".BA", "")
+        lineas.append(f"*{nombre}* ({cant} acc. — {fecha})")
         lineas.append(f"  💵 Precio: *${precio}* | Compra: ${p_compra}")
         lineas.append(f"  {emoji_dia} Hoy: *{signo_dia}{var_dia}%*")
         lineas.append(f"  {emoji_compra} vs Compra: *{signo_compra}{var_compra}%* ({signo_gan}${gan_perdida})")
@@ -95,7 +97,7 @@ def construir_mensaje(resultados: list) -> str:
 
         if abs(var_compra) >= ALERTA_PORCENTAJE:
             dir = "SUBIÓ 📈" if var_compra > 0 else "BAJÓ 📉"
-            alertas.append(f"🚨 *{ticker}*: {dir} *{abs(var_compra)}%* desde tu compra!")
+            alertas.append(f"🚨 *{nombre}*: {dir} *{abs(var_compra)}%* desde tu compra!")
 
     # Resumen total
     total_var = round(((total_actual - total_invertido) / total_invertido) * 100, 2)
@@ -140,11 +142,10 @@ def ejecutar_chequeo():
 
 
 def loop_monitor():
-    schedule.every().monday.at(HORARIO_ENVIO).do(ejecutar_chequeo)
-    schedule.every().tuesday.at(HORARIO_ENVIO).do(ejecutar_chequeo)
-    schedule.every().wednesday.at(HORARIO_ENVIO).do(ejecutar_chequeo)
-    schedule.every().thursday.at(HORARIO_ENVIO).do(ejecutar_chequeo)
-    schedule.every().friday.at(HORARIO_ENVIO).do(ejecutar_chequeo)
+    for dia in [schedule.every().monday, schedule.every().tuesday,
+                schedule.every().wednesday, schedule.every().thursday,
+                schedule.every().friday]:
+        dia.at(HORARIO_ENVIO).do(ejecutar_chequeo)
     print(f"Monitor activo — envío diario a las {HORARIO_ENVIO} hs (lunes a viernes)")
     while True:
         schedule.run_pending()
@@ -156,7 +157,6 @@ def home():
     return "Monitor Cartera corriendo ✅"
 
 
-# Arranca el hilo al importar — funciona con gunicorn y python directo
 hilo = threading.Thread(target=loop_monitor, daemon=True)
 hilo.start()
 
