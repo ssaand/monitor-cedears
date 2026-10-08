@@ -58,7 +58,7 @@ def obtener_precio(ticker: str) -> dict:
 
 
 def construir_mensaje(resultados: list) -> str:
-    ahora = datetime.now().strftime("%d/%m/%Y %H:%M")
+    ahora = (datetime.now() - timedelta(hours=3)).strftime("%d/%m/%Y %H:%M")
     lineas = [f"📊 *Resumen Cartera* — {ahora} hs\n"]
 
     total_invertido = 0
