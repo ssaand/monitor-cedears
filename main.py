@@ -20,26 +20,32 @@ app = Flask(__name__)
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID", "")
 
-# Cartera: ticker Yahoo -> (cantidad, precio_compra_usd, fecha_compra)
+# Cartera: ticker Yahoo -> (cantidad, precio_compra_usd, fecha_compra, nombre_display)
 CARTERA = {
-    "IREND.BA":  (27,   3.62,  "06/OCT/26"),
-    "NVDAD.BA":  (14,  10.50,  "06/OCT/26"),
-    "MUD.BA":    (1,  222.75,  "06/OCT/26"),
-    "IBITD.BA":  (19,   5.07,  "06/OCT/26"),
-    "GOGLD.BA":  (15,   6.27,  "06/OCT/26"),
-    "AVGOD.BA":  (9,   10.16,  "06/OCT/26"),
-    "VSTD.BA":   (15,   6.49,  "06/OCT/26"),
-    "METAD.BA":  (3,   31.52,  "07/OCT/26"),
+    "IREND.BA":   (27,   3.62,  "06/OCT/26", "IREND"),
+    "NVDAD.BA":   (14,  10.50,  "06/OCT/26", "NVDAD"),
+    "MUD.BA":     (1,  222.75,  "06/OCT/26", "MUD"),
+    "IBITD.BA":   (19,   5.07,  "06/OCT/26", "IBITD"),
+    "GOGLD.BA":   (15,   6.27,  "06/OCT/26", "GOGLD"),
+    "AVGOD.BA":   (9,   10.16,  "06/OCT/26", "AVGOD"),
+    "VSTD.BA":    (15,   6.49,  "06/OCT/26", "VSTD"),
+    "METAD.BA":   (3,   31.52,  "07/OCT/26", "METAD"),
+    "IREND.BA_2": (36,   2.72,  "14/OCT/26", "IREND"),
+    "AMZND.BA":   (53,   1.86,  "14/OCT/26", "AMZND"),
+    "LLYD.BA":    (3,   22.78,  "14/OCT/26", "LLYD"),
+    "SNDKD.BA":   (10,   8.74,  "14/OCT/26", "SNDKD"),
 }
 
 ALERTA_PORCENTAJE = 5.0
-HORARIO_ENVIO     = "16:00"  # hora Argentina (Render corre en UTC-3 aprox)
+HORARIO_ENVIO     = "16:00"  # UTC = 13:00 hs Argentina
 
 # ============================================================
 
 def obtener_precio(ticker: str) -> dict:
+    # Ticker real para Yahoo (sacar sufijo _2 si existe)
+    ticker_yahoo = ticker.replace("_2", "")
     try:
-        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker_yahoo}"
         headers = {"User-Agent": "Mozilla/5.0"}
         resp = requests.get(url, headers=headers, timeout=10)
         data = resp.json()
@@ -67,11 +73,11 @@ def construir_mensaje(resultados: list) -> str:
 
     for d in resultados:
         ticker = d["ticker"]
-        cant, p_compra, fecha = CARTERA[ticker]
+        cant, p_compra, fecha, nombre = CARTERA[ticker]
         total_invertido += cant * p_compra
 
         if not d["ok"]:
-            lineas.append(f"❌ *{ticker}*: error al obtener datos\n")
+            lineas.append(f"❌ *{nombre}* ({fecha}): error al obtener datos\n")
             continue
 
         precio       = d["precio"]
@@ -88,7 +94,6 @@ def construir_mensaje(resultados: list) -> str:
         signo_compra = "+" if var_compra >= 0 else ""
         signo_gan    = "+" if gan_perdida >= 0 else ""
 
-        nombre = ticker.replace(".BA", "")
         lineas.append(f"*{nombre}* ({cant} acc. — {fecha})")
         lineas.append(f"  💵 Precio: *${precio}* | Compra: ${p_compra}")
         lineas.append(f"  {emoji_dia} Hoy: *{signo_dia}{var_dia}%*")
@@ -97,7 +102,7 @@ def construir_mensaje(resultados: list) -> str:
 
         if abs(var_compra) >= ALERTA_PORCENTAJE:
             dir = "SUBIÓ 📈" if var_compra > 0 else "BAJÓ 📉"
-            alertas.append(f"🚨 *{nombre}*: {dir} *{abs(var_compra)}%* desde tu compra!")
+            alertas.append(f"🚨 *{nombre}* ({fecha}): {dir} *{abs(var_compra)}%* desde tu compra!")
 
     # Resumen total
     total_var = round(((total_actual - total_invertido) / total_invertido) * 100, 2)
@@ -146,7 +151,7 @@ def loop_monitor():
                 schedule.every().wednesday, schedule.every().thursday,
                 schedule.every().friday]:
         dia.at(HORARIO_ENVIO).do(ejecutar_chequeo)
-    print(f"Monitor activo — envío diario a las {HORARIO_ENVIO} hs (lunes a viernes)")
+    print(f"Monitor activo — envío diario a las {HORARIO_ENVIO} UTC (13:00 hs Argentina)")
     while True:
         schedule.run_pending()
         time.sleep(30)
